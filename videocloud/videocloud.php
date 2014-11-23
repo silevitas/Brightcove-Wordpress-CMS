@@ -40,8 +40,12 @@ function brightcove_video_cloud_media_menu($tabs) {
 }
 
 function brightcove_video_cloud_tab() {
+  // video cloud tab in media dialog
+  // has upload from dropbox and one page of results
+  // cms search needs to be ajax
   wp_enqueue_script( 'jquery' );
   echo media_upload_header();
+  echo brightcove_upload_form();
   $video_json = get_cms_response();
   ?><style type="text/css">
   .brightcove_thumb { width: 120px ;}
@@ -59,6 +63,63 @@ function brightcove_video_cloud_tab() {
       (window.dialogArguments || opener || parent || top).send_to_editor(shortcode);
     });
   </script><?php
+}
+
+function brightcove_upload_form() {
+?><script type="text/javascript" src="https://www.dropbox.com/static/api/2/dropins.js" id="dropboxjs" data-app-key="haonjc8rf0ugfrj"></script>
+
+<p>Create Video Cloud video from Dropbox: <div id="dropbox_container"></div></p>
+
+<script type="text/javascript">
+var oauth_token;
+
+    // Set up Dropbox button
+    options = {
+      success: function(files) {
+        jQuery.post(
+          ajaxurl, 
+            {
+              'action': 'brightcove_upload',
+              'url':   files[0].link
+            }, 
+          function(response){
+            var shortcode = '[brightcove_player video=' + response.id + ']';
+            (window.dialogArguments || opener || parent || top).send_to_editor(shortcode);
+          }
+        );
+      },
+      cancel: function() {},
+      linkType: "direct",
+      multiselect: false,
+      extensions: ['video']
+    };
+    var button = Dropbox.createChooseButton(options);
+    document.getElementById("dropbox_container").appendChild(button);
+</script>
+<hr />
+<?php
+}
+
+// ajax callback for create video
+add_action( 'wp_ajax_brightcove_upload', 'brightcove_upload_callback' );
+function brightcove_upload_callback() {
+  global $wpdb; // this is how you get access to the database
+  $url = $_POST['url'];
+  $token = get_brightcove_token();
+  $acc = get_option( 'bc_account_id' );
+  $cms_response = wp_remote_post( 'https://cms.api.brightcove.com/v1beta1/accounts/' . $acc . '/videos', array(
+    'blocking' => true,
+    'headers' => array( 'Authorization' => 'Bearer ' . $token->response, 'Content-Type' => 'application/json' ),
+    'body' => '{"name":"wordpress dropbox"}'
+  ));
+  $new_video = json_decode($cms_response['body']);
+  $di_response = wp_remote_post( 'https://ingest.api.brightcove.com/v1/accounts/' . $acc . '/videos/' . $new_video->id . '/ingest-requests', array(
+    'blocking' => true,
+    'headers' => array( 'Authorization' => 'Bearer ' . $token->response, 'Content-Type' => 'application/json' ),
+    'body' => '{"profile":"balanced-high-definition", "master": {"url":"' . $url . '"}}'
+  ));
+  wp_send_json($new_video);
+  die(); // this is required to terminate immediately and return a proper response
 }
 
 function brightcove_video_cloud_menu_handle() {
@@ -100,6 +161,7 @@ function bc_settings_page() {
 
     // Save the posted values in the database
     if (($cid_opt_val != '') && ($cs_opt_val != '')) {
+      update_option('bc_client_id', $cid_opt_val);
       update_option('bc_credentials', base64_encode($cid_opt_val . ':' . $cs_opt_val));
     }
 
@@ -125,6 +187,7 @@ function bc_settings_page() {
       echo('<div class="error"><p><strong>Unable to get token. Re-enter client ID and secret.</strong></p>' . $token->response . '</p></div>');
     }
   }
+  $bc_client_id = get_option('bc_client_id');
   $bc_credentials = get_option('bc_credentials');
   echo '<div class="wrap">';
   echo "<h2>" . __( 'Brightcove Video Cloud Settings', 'brightcove-settings' ) . "</h2>";
@@ -141,7 +204,7 @@ function bc_settings_page() {
           <td>  
             <input type="text" name="<?php echo $cid_data_field_name; ?>"
             value="" size="50"<?php echo ($bc_credentials!==false ? "" : " required" ) ?>
-            placeholder="<?php echo ($bc_credentials!==false ? "Saved" : "Enter client ID" ) ?>">
+            placeholder="<?php echo ($bc_credentials!==false ? $bc_client_id : "Enter client ID" ) ?>">
           </td>
         </tr>    
         <tr>
@@ -219,16 +282,19 @@ function get_brightcove_token($force_refresh=false) {
     return $token;
   }
 
-  $ch = curl_init();
-  curl_setopt($ch, CURLOPT_URL,"https://oauth.brightcove.com/v3/access_token");
-  curl_setopt($ch, CURLOPT_RETURNTRANSFER,true);
-  curl_setopt($ch, CURLOPT_HEADER, false);
-  curl_setopt($ch, CURLOPT_HTTPHEADER, array( 'Authorization: Basic ' . $bc_credentials, 'Content-Type: application/x-www-form-urlencoded'));
-  curl_setopt($ch, CURLOPT_POST, 1);
-  curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(array('grant_type'=>'client_credentials')));
-  $output=curl_exec($ch);
-  curl_close($ch);
-  $token_response = json_decode($output);
+  $response = wp_remote_post( 'https://oauth.brightcove.com/v3/access_token', array(
+    'method' => 'POST',
+    'blocking' => true,
+    'headers' => array( 'Authorization' => 'Basic ' . $bc_credentials ),
+    'body' => array( 'grant_type' => 'client_credentials')
+   ));
+
+  if ( is_wp_error( $response ) ) {
+    $token->state = 'error';
+    $token->response = $response->get_error_message();
+    return $token;
+  }
+  $token_response = json_decode($response['body']);
   if (!isset($token_response->access_token)) {
     $token->state = 'error';
     $token->response = $output;
@@ -245,18 +311,15 @@ function get_brightcove_token($force_refresh=false) {
 }
 
 function get_cms_response() {
-// Just gets first page of videos
+  // Just gets first page of videos
   $token = get_brightcove_token();
   $acc = get_option( 'bc_account_id' );
   if ($token->state == 'ok' || $token->state == 'cached') {
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL,"https://cms.api.brightcove.com/v1beta1/accounts/" . $acc . "/videos");
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER,true);
-    curl_setopt($ch, CURLOPT_HEADER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array( 'Authorization: Bearer ' . $token->response ));
-    $output=curl_exec($ch);
-    curl_close($ch);
-    return json_decode($output);
+    $response = wp_remote_get( 'https://cms.api.brightcove.com/v1beta1/accounts/' . $acc . '/videos', array(
+    'blocking' => true,
+    'headers' => array( 'Authorization' => 'Bearer ' . $token->response )
+   ));
+   return json_decode($response['body']);
   }
 }
 
