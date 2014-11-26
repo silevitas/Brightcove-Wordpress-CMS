@@ -38,14 +38,19 @@ function bccms_settings_page() {
   $acc_display_name = __( 'Video Cloud Account ID','brightcove-cms' );
   $acc_data_field_name = 'bccms_account_id';
 
-  $pid_opt_name = 'bc_player_id';
+  $pid_opt_name = 'bccms_player_id';
   $pid_display_name = __( 'Brightcove Player ID','brightcove-cms' );
   $pid_data_field_name = 'bccms_player_id';
+
+  $dropbox_opt_name = 'bccms_dropbox_api';
+  $dropbox_display_name = __( 'Dropbox API key','brightcove-cms' );
+  $dropbox_data_field_name = 'bccms_dropbox_api';
 
   $hidden_field_name = 'bccms_submit_hidden';
 
   $acc_opt_val = get_option( $acc_opt_name );
   $pid_opt_val = get_option( $pid_opt_name ) ?: 'default';
+  $dropbox_opt_val = get_option( $dropbox_opt_name ) ?: '';
 
   if( isset($_POST[ $hidden_field_name ]) && $_POST[ $hidden_field_name ] == 'Y' ) {
     // Read the posted values
@@ -53,6 +58,7 @@ function bccms_settings_page() {
     $cs_opt_val = $_POST[ $cs_data_field_name ];
     $acc_opt_val = $_POST[ $acc_data_field_name ];
     $pid_opt_val = $_POST[ $pid_data_field_name ];
+    $dropbox_opt_val = $_POST[ $dropbox_data_field_name ];
 
     // Save the id and secret if both set
     if ( ( $cid_opt_val != '' ) && ( $cs_opt_val != '' ) ) {
@@ -63,6 +69,9 @@ function bccms_settings_page() {
     // Save the player and pub id
     update_option( $acc_opt_name, $acc_opt_val );
     update_option( $pid_opt_name, $pid_opt_val );
+
+    // Save dropbox key
+    update_option( $dropbox_opt_name, $dropbox_opt_val );
 
     // Put an settings updated message on the screen
 
@@ -150,6 +159,22 @@ function bccms_settings_page() {
             </p>
           </td>
         </tr>
+        <tr>
+          <th scope="row">
+            <label for="<?php echo $dropbox_data_field_name; ?>">
+            <?php echo $dropbox_display_name; ?>
+            </label>
+          </th>
+          <td>
+            <input type="text" name="<?php echo $dropbox_data_field_name; ?>"
+            value="<?php echo $dropbox_opt_val; ?>" size="50">
+            <p class="description">
+            <a href="https://www.dropbox.com/developers/apps">
+            <?php _e( 'Enter your Dropbox API key' , 'brightcove-cms' ); ?>
+            </a>
+            </p>
+          </td>
+        </tr>
       </tbody>
     </table>
     <p class="submit">
@@ -218,8 +243,11 @@ function bccms_media_tab() {
 }
 
 function bccms_upload_form() {
-  // Todo - this 
-?><script type="text/javascript" src="https://www.dropbox.com/static/api/2/dropins.js" id="dropboxjs" data-app-key="haonjc8rf0ugfrj"></script>
+$dropbox_api = get_option( 'bccms_dropbox_api' );
+if ( $dropbox_api == '' ) {
+  return '';
+}
+?><script type="text/javascript" src="https://www.dropbox.com/static/api/2/dropins.js" id="dropboxjs" data-app-key="$dropbox_api"></script>
 
 <p><?php _e( 'Create Video Cloud video from Dropbox', 'brightcove-cms' ); ?>: <div id="dropbox_container"></div></p>
 
