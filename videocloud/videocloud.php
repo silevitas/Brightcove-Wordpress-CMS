@@ -195,10 +195,16 @@ function bccms_brightcove_shortcode( $atts, $content = null ) {
   extract(shortcode_atts(array('video' => null), $atts));
   $p_id = get_option('bc_player_id');
   $acc = get_option( 'bccms_account_id' );
-  $player = "<iframe width='640px' height='360px' frameborder=0 ";
+  $player = "<div class='bccms_wrapper'><iframe frameborder=0 ";
   $player .= "src='//players.brightcove.net/" . $acc . "/" . $p_id . "_default/index.html";
-  $player .= "?videoId=" . $video . "' ";
-  $player .= "allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe>";
+  $player .= "?videoId=" . $video . "' class='bccms_player'";
+  $player .= "allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe></div>";
+  // This CSS needs to go somewhere else
+  $player .= "<style type='text/css'>";
+  $player .= ".bccms_wrapper { width: 100%; display: inline-block; position: relative; } ";
+  $player .= ".bccms_wrapper:after { padding-top: 56.25%; display: block; content: '';} ";
+  $player .= ".bccms_player { position: absolute; width: 100%; height: 100% } ";
+  $player .= "</style>";
   return $player;
 }
 
